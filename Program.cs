@@ -1,6 +1,7 @@
 ﻿using Polly;
 using Polly.Timeout;
 using System;
+using System.Collections.Generic;
 using System.Threading;
 
 namespace RetryPolicy
@@ -9,18 +10,21 @@ namespace RetryPolicy
     {
         static void Main(string[] args)
         {
+            Console.WriteLine("Finished succesfully. Goodbye");
+        }
+
+        static void TestPolicy()
+        {
             Policy
                 .Handle<TimeoutRejectedException>()
-                .WaitAndRetry(
-                    retryCount: 5,
-                    sleepDurationProvider: x => TimeSpan.FromSeconds(3),
-                    onRetry: (exception, duration, retryCount, context) =>
-                    {
-                        Console.WriteLine($"MightFail failed. Retry #{retryCount}");
-                    })
-                .Execute(MightFail);
-
-            Console.WriteLine("Finished succesfully. Goodbye");
+            .WaitAndRetry(
+                retryCount: 5,
+                sleepDurationProvider: new RetryDurationProvider(RetryWaitDuration).RetrySleepProvider,
+                onRetry: (exception, duration, retryCount, context) =>
+                {
+                    Console.WriteLine($"MightFail failed. Retry #{retryCount}");
+                })
+            .Execute(MightFail);
         }
 
         static void MightFail()
@@ -44,6 +48,34 @@ namespace RetryPolicy
             Console.WriteLine($"In MightTakeAWhile. will take {sleepSeconds} sec.");
             
             Thread.Sleep(TimeSpan.FromSeconds(sleepSeconds));
+        }
+
+        private static IEnumerable<TimeSpan> RetryWaitDuration()
+        {
+            yield return TimeSpan.FromSeconds(1);
+            yield return TimeSpan.FromSeconds(10);
+            yield return TimeSpan.FromMinutes(1);
+            yield return TimeSpan.FromMinutes(5);
+            yield return TimeSpan.FromMinutes(15);
+            yield return TimeSpan.FromHours(1);
+        }
+    }
+
+    class RetryDurationProvider
+    {
+        private IEnumerator<TimeSpan> it; 
+
+        public RetryDurationProvider(Func<IEnumerable<TimeSpan>> func)
+        {
+            it = func().GetEnumerator();
+        }
+
+        public TimeSpan RetrySleepProvider(int dummy)
+        {
+            if (it.MoveNext())
+                return it.Current;
+
+            return TimeSpan.FromSeconds(1);
         }
     }
 }
